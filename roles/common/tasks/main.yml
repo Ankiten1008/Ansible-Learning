@@ -1,0 +1,6 @@
+---
+# tasks file for common
+- name: Ensure java installed
+  yum:
+    name: java
+    state: latest 

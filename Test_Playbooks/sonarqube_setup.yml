@@ -1,0 +1,115 @@
+---
+- hosts: sonarqube
+  tasks:
+  - name: ensure a list of packages installed
+    yum:
+      name: "{{ packages }}"
+      state: latest
+    vars:
+      packages:
+      - java
+      - wget
+      - unzip
+      - python-pip
+      - epel-release
+  - name: Install passlib
+    pip:
+        name: passlib
+  - name: ensure sonarqube directory exists
+    file:
+      path: /opt/sonarqube
+      state: directory
+  - name: Download and Unarchive sonarqube
+    unarchive:
+        src: https://binaries.sonarsource.com/Distribution/sonarqube/sonarqube-8.2.0.32929.zip
+        dest: /opt/sonarqube
+        remote_src: yes
+        creates: /opt/sonarqube/sonarqube-8.2.0.32929.zip  ## if the file already exist in path, it wont download again.
+  - name: Postgres Installation
+    yum:
+        name: postgresql-server,postgresql-contrib,postgresql-libs
+        state: latest
+  - name: Initialize Postgres
+    command: /usr/bin/postgresql-setup initdb
+    environment:
+      PATH: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+    become: true
+    register: fail_me
+    failed_when: "'Data directory is not empty!' not in fail_me.stdout and fail_me.rc != 0"
+  - name: Edit the conf file
+    lineinfile:
+      path: /var/lib/pgsql/data/pg_hba.conf
+      regexp: '^host    all             all             127.0.0.1/32            ident'
+      line: host    all             all             127.0.0.1/32            md5
+  - name: Edit the conf file
+    lineinfile:
+      path: /var/lib/pgsql/data/pg_hba.conf
+      regexp: '^host    all             all             ::1/128                 ident'
+      line: host    all             all             ::1/128                 md5
+  - name: Ensure postgres is running
+    service:
+      name: postgresql
+      state: started
+      enabled: yes
+  - name: change postgres password
+    user:
+        name: postgres
+        password: "{{ 'xxxxxxxx' | password_hash('sha512') }}"
+  - name: Add the user 'sonar'
+    user:
+      name: sonar
+      password: "{{ 'sonar' | password_hash('sha512') }}"
+  - name: Install psycopg2
+    pip:
+      name: psycopg2==2.7.5
+      state: forcereinstall
+  - name: Create sonar postgres user
+    postgresql_user:
+      name: sonar
+      password: sonar
+      role_attr_flags: CREATEDB,SUPERUSER
+    become: true
+    become_user: postgres
+  - name: Create a new database with name "sonar" and specific encoding and settings.
+    postgresql_db:
+      name: sonar
+      encoding: UTF-8
+      owner: sonar
+      template: template0
+    become: true
+    become_user: postgres
+  - name: Set /conf/sonar.properties
+    lineinfile:
+      dest: /opt/sonarqube/sonarqube-8.2.0.32929/conf/sonar.properties
+      regexp: "{{ item.regexp }}"
+      line: "{{ item.line }}"
+    with_items:
+      - { regexp: '^#sonar.jdbc.username=', line: 'sonar.jdbc.username=sonar' }
+      - { regexp: '^#sonar.jdbc.password=', line: 'sonar.jdbc.password=sonar' }
+      #- { regexp: '^#sonar.jdbc.url=jdbc:postgresql://localhost/sonarqube?currentSchema=my_schema', line: 'sonar.jdbc.url=jdbc:postgresql://{{ansible_hostname}}/sonar' }
+      - { regexp: '^#sonar.web.host=0.0.0.0', line: 'sonar.web.host=0.0.0.0'}
+      - { regexp: '^#sonar.web.port=9000', line: 'sonar.web.port=9000'}
+  - name: Insert postgres conf in sonar.properties
+    lineinfile:
+      path: /opt/sonarqube/sonarqube-8.2.0.32929/conf/sonar.properties
+      insertafter: '^#----- PostgreSQL 9.3 or greater'
+      line: sonar.jdbc.url=jdbc:postgresql://{{ansible_hostname}}/sonar    
+  - name: Enable Port 9000 in firwall
+    firewalld:
+      port: 9000/tcp
+      permanent: yes
+      state: enabled
+      immediate: yes    
+  - name: Change /opt/sonarqube owner and group to 'sonar' user as sonarqube should not be executed by root user
+    file:
+      path: /opt/sonarqube
+      state: directory
+      recurse: yes
+      owner: sonar
+      group: sonar
+  - name: Finally!!! start sonar.sh service
+    shell: /opt/sonarqube/sonarqube-8.2.0.32929/bin/linux-x86-64/./sonar.sh start
+    become: true
+    become_user: sonar
+    register: result
+  - debug: var=result

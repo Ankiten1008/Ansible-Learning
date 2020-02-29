@@ -1,0 +1,12 @@
+___
+- hosts: test_servers
+  tasks:
+	- name:Install Apache
+	      yum:
+      		name: httpd
+      		state: installed
+	- name: Latest version
+	      yum:
+		name: httpd
+		state: latest
+___	

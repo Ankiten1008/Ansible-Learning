@@ -1,0 +1,23 @@
+---
+- hosts: test_servers
+  vars:
+    http_port: 80
+    max_clients: 200
+  remote_user: z003jq0
+  become: yes
+  tasks:
+  - name: ensure apache is at the latest version
+    yum:
+      name: httpd
+      state: present
+  - name: ensure apache is running
+    service:
+      name: httpd
+      state: stopped
+    notify:
+    - restart apache
+  handlers:
+    - name: restart apache
+      service:
+        name: httpd
+        state: restarted
