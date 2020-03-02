@@ -10,7 +10,7 @@
       - java
       - wget
       - unzip
-      - python-pip
+      - python-pip  ## Make sure EPEL repo is enabled as PIP package is not available to default yum repo.
   - name: Install passlib
     pip:
         name: passlib
